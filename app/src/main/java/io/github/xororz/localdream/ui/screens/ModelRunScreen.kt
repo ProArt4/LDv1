@@ -25,6 +25,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -116,6 +117,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -278,6 +280,7 @@ fun ModelRunScreen(
     var showOpenCLWarningDialog by remember { mutableStateOf(false) }
 
     var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var intermediateBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var imageVersion by remember { mutableStateOf(0) }
     var generationParams by remember { mutableStateOf<GenerationParameters?>(null) }
 
@@ -745,9 +748,11 @@ fun ModelRunScreen(
                 }
                 progress = state.progress
                 isRunning = true
+                state.intermediateImage?.let { intermediateBitmap = it }
             }
 
             is GenerationState.Complete -> {
+                intermediateBitmap = null
                 withContext(Dispatchers.Main) {
                     Log.d("ModelRunScreen", "update bitmap")
 
@@ -825,6 +830,7 @@ fun ModelRunScreen(
             }
 
             is GenerationState.Error -> {
+                intermediateBitmap = null
                 errorMessage = state.message
                 isRunning = false
                 progress = 0f
@@ -1053,600 +1059,604 @@ fun ModelRunScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large
+            AnimatedVisibility(
+                visible = intermediateBitmap == null,
+                enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text(
-                            stringResource(R.string.prompt_settings),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (useImg2img) {
-                                TextButton(
-                                    onClick = {
-                                        onSelectImageClick()
+                            Text(
+                                stringResource(R.string.prompt_settings),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (useImg2img) {
+                                    TextButton(
+                                        onClick = {
+                                            onSelectImageClick()
+                                        }
+                                    ) {
+                                        Text(
+                                            "img2img",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                        Icon(
+                                            Icons.Default.Image,
+                                            contentDescription = "select image",
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
+                                }
+                                TextButton(
+                                    onClick = { showAdvancedSettings = true }
                                 ) {
                                     Text(
-                                        "img2img",
+                                        stringResource(R.string.advanced_settings),
                                         style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.padding(end = 4.dp)
                                     )
                                     Icon(
-                                        Icons.Default.Image,
-                                        contentDescription = "select image",
+                                        Icons.Default.Settings,
+                                        contentDescription = stringResource(R.string.settings),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
-                            TextButton(
-                                onClick = { showAdvancedSettings = true }
-                            ) {
-                                Text(
-                                    stringResource(R.string.advanced_settings),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(end = 4.dp)
-                                )
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = stringResource(R.string.settings),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        if (showAdvancedSettings) {
-                            AlertDialog(
-                                onDismissRequest = {
-                                    showAdvancedSettings = false
-                                },
-                                title = { Text(stringResource(R.string.advanced_settings_title)) },
-                                text = {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(
-                                            2.dp
-                                        ),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .verticalScroll(rememberScrollState())
-                                            .padding(vertical = 4.dp)
-                                    ) {
-                                        if (model?.runOnCpu == false && availableResolutions.isNotEmpty()) {
+                            if (showAdvancedSettings) {
+                                AlertDialog(
+                                    onDismissRequest = {
+                                        showAdvancedSettings = false
+                                    },
+                                    title = { Text(stringResource(R.string.advanced_settings_title)) },
+                                    text = {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(
+                                                2.dp
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .verticalScroll(rememberScrollState())
+                                                .padding(vertical = 4.dp)
+                                        ) {
+                                            if (model?.runOnCpu == false && availableResolutions.isNotEmpty()) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    // verticalArrangement = Arrangement.spacedBy(
+                                                    //     4.dp
+                                                    // )
+                                                ) {
+                                                    Text(
+                                                        stringResource(R.string.resolution),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .horizontalScroll(
+                                                                rememberScrollState()
+                                                            ),
+                                                        horizontalArrangement = Arrangement.spacedBy(
+                                                            8.dp
+                                                        )
+                                                    ) {
+                                                        availableResolutions.forEach { resolution ->
+                                                            FilterChip(
+                                                                selected = currentWidth == resolution.width && currentHeight == resolution.height,
+                                                                onClick = {
+                                                                    if (!isRunning && (resolution.width != currentWidth || resolution.height != currentHeight)) {
+                                                                        pendingResolution =
+                                                                            resolution
+                                                                        showResolutionChangeDialog =
+                                                                            true
+                                                                    }
+                                                                },
+                                                                label = {
+                                                                    Text(
+                                                                        resolution.toString()
+                                                                    )
+                                                                },
+                                                                enabled = !isRunning
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             Column(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                // verticalArrangement = Arrangement.spacedBy(
-                                                //     4.dp
-                                                // )
+                                                // verticalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 Text(
-                                                    stringResource(R.string.resolution),
+                                                    stringResource(R.string.scheduler),
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .horizontalScroll(
-                                                            rememberScrollState()
+                                                        .horizontalScroll(rememberScrollState()),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    FilterChip(
+                                                        selected = scheduler == "dpm",
+                                                        onClick = {
+                                                            scheduler = "dpm"
+                                                            saveAllFields()
+                                                        },
+                                                        label = { Text("DPM++ 2M") }
+                                                    )
+                                                    FilterChip(
+                                                        selected = scheduler == "euler_a",
+                                                        onClick = {
+                                                            scheduler = "euler_a"
+                                                            saveAllFields()
+                                                        },
+                                                        label = { Text("Euler A") }
+                                                    )
+                                                }
+                                            }
+
+                                            Column {
+                                                Text(
+                                                    stringResource(
+                                                        R.string.steps,
+                                                        steps.roundToInt()
+                                                    ),
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Slider(
+                                                    value = steps,
+                                                    onValueChange = onStepsChange,
+                                                    valueRange = 1f..50f,
+                                                    steps = 48,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+
+                                            Column {
+                                                Text(
+                                                    "CFG Scale: %.1f".format(cfg),
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Slider(
+                                                    value = cfg,
+                                                    onValueChange = onCfgChange,
+                                                    valueRange = 1f..30f,
+                                                    steps = 57,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                            if (model?.runOnCpu ?: false) {
+                                                Column {
+                                                    Text(
+                                                        stringResource(
+                                                            R.string.image_size,
+                                                            currentWidth,
+                                                            currentHeight
                                                         ),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    Slider(
+                                                        value = currentWidth.toFloat(),
+                                                        onValueChange = onSizeChange,
+                                                        valueRange = 128f..512f,
+                                                        steps = 5,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
+                                            if (model?.runOnCpu ?: false) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(
                                                         8.dp
                                                     )
                                                 ) {
-                                                    availableResolutions.forEach { resolution ->
-                                                        FilterChip(
-                                                            selected = currentWidth == resolution.width && currentHeight == resolution.height,
-                                                            onClick = {
-                                                                if (!isRunning && (resolution.width != currentWidth || resolution.height != currentHeight)) {
-                                                                    pendingResolution =
-                                                                        resolution
-                                                                    showResolutionChangeDialog =
-                                                                        true
-                                                                }
-                                                            },
-                                                            label = {
-                                                                Text(
-                                                                    resolution.toString()
-                                                                )
-                                                            },
-                                                            enabled = !isRunning
+                                                    Text(
+                                                        "Runtime",
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    FilterChip(
+                                                        selected = !useOpenCL,
+                                                        onClick = {
+                                                            useOpenCL = false
+                                                            saveAllFields()
+                                                        },
+                                                        label = { Text("CPU") },
+                                                        modifier = Modifier.weight(
+                                                            1f
                                                         )
-                                                    }
+                                                    )
+                                                    FilterChip(
+                                                        selected = useOpenCL,
+                                                        onClick = {
+                                                            if (!useOpenCL) {
+                                                                showOpenCLWarningDialog =
+                                                                    true
+                                                            } else {
+                                                                useOpenCL = false
+                                                                saveAllFields()
+                                                            }
+                                                        },
+                                                        label = { Text("GPU") },
+                                                        modifier = Modifier.weight(
+                                                            1f
+                                                        )
+                                                    )
                                                 }
                                             }
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            // verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                stringResource(R.string.scheduler),
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                FilterChip(
-                                                    selected = scheduler == "dpm",
-                                                    onClick = {
-                                                        scheduler = "dpm"
-                                                        saveAllFields()
-                                                    },
-                                                    label = { Text("DPM++ 2M") }
-                                                )
-                                                FilterChip(
-                                                    selected = scheduler == "euler_a",
-                                                    onClick = {
-                                                        scheduler = "euler_a"
-                                                        saveAllFields()
-                                                    },
-                                                    label = { Text("Euler A") }
-                                                )
-                                            }
-                                        }
-
-                                        Column {
-                                            Text(
-                                                stringResource(
-                                                    R.string.steps,
-                                                    steps.roundToInt()
-                                                ),
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Slider(
-                                                value = steps,
-                                                onValueChange = onStepsChange,
-                                                valueRange = 1f..50f,
-                                                steps = 48,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-
-                                        Column {
-                                            Text(
-                                                "CFG Scale: %.1f".format(cfg),
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Slider(
-                                                value = cfg,
-                                                onValueChange = onCfgChange,
-                                                valueRange = 1f..30f,
-                                                steps = 57,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                        if (model?.runOnCpu ?: false) {
                                             Column {
                                                 Text(
                                                     stringResource(
-                                                        R.string.image_size,
-                                                        currentWidth,
-                                                        currentHeight
+                                                        R.string.batch_count,
+                                                        batchCounts
                                                     ),
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                                 Slider(
-                                                    value = currentWidth.toFloat(),
-                                                    onValueChange = onSizeChange,
-                                                    valueRange = 128f..512f,
-                                                    steps = 5,
+                                                    value = batchCounts.toFloat(),
+                                                    onValueChange = onBatchCountsChange,
+                                                    valueRange = 1f..10f,
+                                                    steps = 8,
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                             }
-                                        }
-                                        if (model?.runOnCpu ?: false) {
-                                            Row(
+                                            if (useImg2img) {
+                                                Column {
+                                                    Text(
+                                                        "[img2img]Denoise Strength: %.2f".format(
+                                                            denoiseStrength
+                                                        ),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    Slider(
+                                                        value = denoiseStrength,
+                                                        onValueChange = onDenoiseStrengthChange,
+                                                        valueRange = 0f..1f,
+                                                        steps = 99,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
+                                            Column(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(
+                                                verticalArrangement = Arrangement.spacedBy(
                                                     8.dp
                                                 )
                                             ) {
-                                                Text(
-                                                    "Runtime",
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                FilterChip(
-                                                    selected = !useOpenCL,
-                                                    onClick = {
-                                                        useOpenCL = false
-                                                        saveAllFields()
-                                                    },
-                                                    label = { Text("CPU") },
-                                                    modifier = Modifier.weight(
-                                                        1f
-                                                    )
-                                                )
-                                                FilterChip(
-                                                    selected = useOpenCL,
-                                                    onClick = {
-                                                        if (!useOpenCL) {
-                                                            showOpenCLWarningDialog =
-                                                                true
-                                                        } else {
-                                                            useOpenCL = false
-                                                            saveAllFields()
-                                                        }
-                                                    },
-                                                    label = { Text("GPU") },
-                                                    modifier = Modifier.weight(
-                                                        1f
-                                                    )
-                                                )
-                                            }
-                                        }
-                                        Column {
-                                            Text(
-                                                stringResource(
-                                                    R.string.batch_count,
-                                                    batchCounts
-                                                ),
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Slider(
-                                                value = batchCounts.toFloat(),
-                                                onValueChange = onBatchCountsChange,
-                                                valueRange = 1f..10f,
-                                                steps = 8,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                        if (useImg2img) {
-                                            Column {
-                                                Text(
-                                                    "[img2img]Denoise Strength: %.2f".format(
-                                                        denoiseStrength
+                                                OutlinedTextField(
+                                                    value = seed,
+                                                    onValueChange = onSeedChange,
+                                                    label = { Text(stringResource(R.string.random_seed)) },
+                                                    keyboardOptions = KeyboardOptions(
+                                                        keyboardType = KeyboardType.Number
                                                     ),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = denoiseStrength,
-                                                    onValueChange = onDenoiseStrengthChange,
-                                                    valueRange = 0f..1f,
-                                                    steps = 99,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                        }
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(
-                                                8.dp
-                                            )
-                                        ) {
-                                            OutlinedTextField(
-                                                value = seed,
-                                                onValueChange = onSeedChange,
-                                                label = { Text(stringResource(R.string.random_seed)) },
-                                                keyboardOptions = KeyboardOptions(
-                                                    keyboardType = KeyboardType.Number
-                                                ),
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = MaterialTheme.shapes.medium,
-                                                trailingIcon = {
-                                                    if (seed.isNotEmpty()) {
-                                                        IconButton(onClick = {
-                                                            seed = ""
-                                                            saveAllFields()
-                                                        }) {
-                                                            Icon(
-                                                                Icons.Default.Clear,
-                                                                contentDescription = "clear"
-                                                            )
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = MaterialTheme.shapes.medium,
+                                                    trailingIcon = {
+                                                        if (seed.isNotEmpty()) {
+                                                            IconButton(onClick = {
+                                                                seed = ""
+                                                                saveAllFields()
+                                                            }) {
+                                                                Icon(
+                                                                    Icons.Default.Clear,
+                                                                    contentDescription = "clear"
+                                                                )
+                                                            }
                                                         }
                                                     }
-                                                }
-                                            )
+                                                )
 
-                                            if (returnedSeed != null) {
-                                                FilledTonalButton(
-                                                    onClick = {
-                                                        seed =
-                                                            returnedSeed.toString()
-                                                        saveAllFields()
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.Refresh,
-                                                        contentDescription = stringResource(
-                                                            R.string.use_last_seed
-                                                        ),
-                                                        modifier = Modifier
-                                                            .size(
-                                                                20.dp
-                                                            )
-                                                            .padding(end = 4.dp)
-                                                    )
-                                                    Text(
-                                                        stringResource(
-                                                            R.string.use_last_seed,
-                                                            returnedSeed.toString()
+                                                if (returnedSeed != null) {
+                                                    FilledTonalButton(
+                                                        onClick = {
+                                                            seed =
+                                                                returnedSeed.toString()
+                                                            saveAllFields()
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Refresh,
+                                                            contentDescription = stringResource(
+                                                                R.string.use_last_seed
+                                                            ),
+                                                            modifier = Modifier
+                                                                .size(
+                                                                    20.dp
+                                                                )
+                                                                .padding(end = 4.dp)
                                                         )
-                                                    )
+                                                        Text(
+                                                            stringResource(
+                                                                R.string.use_last_seed,
+                                                                returnedSeed.toString()
+                                                            )
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                },
-                                confirmButton = {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        TextButton(
-                                            onClick = {
-                                                showResetConfirmDialog = true
-                                            },
-                                            colors = ButtonDefaults.textButtonColors(
-                                                contentColor = MaterialTheme.colorScheme.error
-                                            )
+                                    },
+                                    confirmButton = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Icon(
-                                                Icons.Default.Refresh,
-                                                contentDescription = stringResource(
-                                                    R.string.reset
-                                                ),
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .padding(end = 4.dp)
-                                            )
-                                            Text(stringResource(R.string.reset))
-                                        }
+                                            TextButton(
+                                                onClick = {
+                                                    showResetConfirmDialog = true
+                                                },
+                                                colors = ButtonDefaults.textButtonColors(
+                                                    contentColor = MaterialTheme.colorScheme.error
+                                                )
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = stringResource(
+                                                        R.string.reset
+                                                    ),
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .padding(end = 4.dp)
+                                                )
+                                                Text(stringResource(R.string.reset))
+                                            }
 
-                                        TextButton(onClick = {
-                                            showAdvancedSettings = false
-                                        }) {
-                                            Text(stringResource(R.string.confirm))
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    var expandedPrompt by remember { mutableStateOf(false) }
-                    var expandedNegativePrompt by remember {
-                        mutableStateOf(
-                            false
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = prompt,
-                        onValueChange = onPromptChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) { },
-                        label = { Text(stringResource(R.string.image_prompt)) },
-                        maxLines = if (expandedPrompt) Int.MAX_VALUE else 2,
-                        minLines = if (expandedPrompt) 3 else 2,
-                        shape = MaterialTheme.shapes.medium,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        trailingIcon = {
-                            IconButton(onClick = {
-                                expandedPrompt = !expandedPrompt
-                            }) {
-                                Icon(
-                                    if (expandedPrompt) Icons.Default.KeyboardArrowUp
-                                    else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = if (expandedPrompt) "collapse" else "expand"
-                                )
-                            }
-                        }
-                    )
-
-                    OutlinedTextField(
-                        value = negativePrompt,
-                        onValueChange = onNegativePromptChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) { },
-                        label = { Text(stringResource(R.string.negative_prompt)) },
-                        maxLines = if (expandedNegativePrompt) Int.MAX_VALUE else 2,
-                        minLines = if (expandedNegativePrompt) 3 else 2,
-                        shape = MaterialTheme.shapes.medium,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        ),
-                        trailingIcon = {
-                            IconButton(onClick = {
-                                expandedNegativePrompt = !expandedNegativePrompt
-                            }) {
-                                Icon(
-                                    if (expandedNegativePrompt) Icons.Default.KeyboardArrowUp
-                                    else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = if (expandedNegativePrompt) "collapse" else "expand"
-                                )
-                            }
-                        }
-                    )
-
-                    Button(
-                        onClick = {
-                            focusManager.clearFocus()
-                            Log.d(
-                                "ModelRunScreen",
-                                "start generation"
-                            )
-                            generationParamsTmp = GenerationParameters(
-                                steps = steps.roundToInt(),
-                                cfg = cfg,
-                                seed = 0,
-                                prompt = prompt,
-                                negativePrompt = negativePrompt,
-                                generationTime = "",
-                                width = currentWidth,
-                                height = currentHeight,
-                                runOnCpu = model?.runOnCpu ?: false,
-                                denoiseStrength = denoiseStrength,
-                                useOpenCL = useOpenCL,
-                                scheduler = scheduler
-                            )
-
-                            Log.d(
-                                "ModelRunScreen",
-                                "start generation batch: $batchCounts times"
-                            )
-
-                            // If seed is set, only generate once regardless of batch count
-                            val actualBatchCount =
-                                if (seed.isNotBlank()) 1 else batchCounts
-
-                            batchGenerationJob = coroutineScope.launch {
-                                for (i in 0 until actualBatchCount) {
-                                    currentBatchIndex = i + 1
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "preparing batch $i"
-                                    )
-
-                                    // Update generationParamsTmp to reflect current parameters
-                                    // This allows parameters to be changed during batch execution
-                                    generationParamsTmp = GenerationParameters(
-                                        steps = steps.roundToInt(),
-                                        cfg = cfg,
-                                        seed = 0,
-                                        prompt = prompt,
-                                        negativePrompt = negativePrompt,
-                                        generationTime = "",
-                                        width = currentWidth,
-                                        height = currentHeight,
-                                        runOnCpu = model?.runOnCpu ?: false,
-                                        denoiseStrength = denoiseStrength,
-                                        useOpenCL = useOpenCL,
-                                        scheduler = scheduler
-                                    )
-
-                                    val batchIntent = Intent(
-                                        context,
-                                        BackgroundGenerationService::class.java
-                                    ).apply {
-                                        putExtra("prompt", prompt)
-                                        putExtra(
-                                            "negative_prompt",
-                                            negativePrompt
-                                        )
-                                        putExtra("steps", steps.roundToInt())
-                                        putExtra("cfg", cfg)
-                                        seed.toLongOrNull()
-                                            ?.let { putExtra("seed", it) }
-                                        putExtra("width", currentWidth)
-                                        putExtra("height", currentHeight)
-                                        putExtra(
-                                            "denoise_strength",
-                                            denoiseStrength
-                                        )
-                                        putExtra("use_opencl", useOpenCL)
-                                        putExtra("scheduler", scheduler)
-                                        putExtra("batch_index", i)
-                                        if (selectedImageUri != null && base64EncodeDone) {
-                                            putExtra("has_image", true)
-                                            if (isInpaintMode && maskBitmap != null) {
-                                                putExtra("has_mask", true)
+                                            TextButton(onClick = {
+                                                showAdvancedSettings = false
+                                            }) {
+                                                Text(stringResource(R.string.confirm))
                                             }
                                         }
                                     }
+                                )
+                            }
+                        }
 
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "start service - batch $i"
-                                    )
+                        var expandedPrompt by remember { mutableStateOf(false) }
+                        var expandedNegativePrompt by remember {
+                            mutableStateOf(
+                                false
+                            )
+                        }
 
-                                    context.startForegroundService(batchIntent)
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "start service sent - batch $i"
-                                    )
-
-                                    BackgroundGenerationService.generationState
-                                        .first { state ->
-                                            state is GenerationState.Complete ||
-                                                    state is GenerationState.Error
-                                        }
-
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "batch $i completed, waiting for service to stop"
-                                    )
-
-                                    // Wait for service to actually stop
-                                    val waitStartTime =
-                                        System.currentTimeMillis()
-                                    val timeoutMs = 5000L
-                                    while (BackgroundGenerationService.isServiceRunning.value) {
-                                        if (System.currentTimeMillis() - waitStartTime > timeoutMs) {
-                                            Log.w(
-                                                "ModelRunScreen",
-                                                "Timeout waiting for service to stop"
-                                            )
-                                            break
-                                        }
-                                        delay(100)
-                                    }
-
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms"
-                                    )
-
-                                    BackgroundGenerationService.resetState()
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "service state reset, ready for next batch"
+                        OutlinedTextField(
+                            value = prompt,
+                            onValueChange = onPromptChange,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) { },
+                            label = { Text(stringResource(R.string.image_prompt)) },
+                            maxLines = if (expandedPrompt) Int.MAX_VALUE else 2,
+                            minLines = if (expandedPrompt) 3 else 2,
+                            shape = MaterialTheme.shapes.medium,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            ),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    expandedPrompt = !expandedPrompt
+                                }) {
+                                    Icon(
+                                        if (expandedPrompt) Icons.Default.KeyboardArrowUp
+                                        else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (expandedPrompt) "collapse" else "expand"
                                     )
                                 }
-                                currentBatchIndex = 0
-                                isRunning = false
+                            }
+                        )
+
+                        OutlinedTextField(
+                            value = negativePrompt,
+                            onValueChange = onNegativePromptChange,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) { },
+                            label = { Text(stringResource(R.string.negative_prompt)) },
+                            maxLines = if (expandedNegativePrompt) Int.MAX_VALUE else 2,
+                            minLines = if (expandedNegativePrompt) 3 else 2,
+                            shape = MaterialTheme.shapes.medium,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                            ),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    expandedNegativePrompt = !expandedNegativePrompt
+                                }) {
+                                    Icon(
+                                        if (expandedNegativePrompt) Icons.Default.KeyboardArrowUp
+                                        else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (expandedNegativePrompt) "collapse" else "expand"
+                                    )
+                                }
+                            }
+                        )
+
+                        Button(
+                            onClick = {
+                                focusManager.clearFocus()
                                 Log.d(
                                     "ModelRunScreen",
-                                    "all batches completed, isRunning set to false"
+                                    "start generation"
                                 )
-                            }
-                        },
-                        enabled = serviceState !is GenerationState.Progress && !isRunning && !isUpscaling,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        if (serviceState is GenerationState.Progress || isUpscaling) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Text(stringResource(R.string.generate_image))
+                                generationParamsTmp = GenerationParameters(
+                                    steps = steps.roundToInt(),
+                                    cfg = cfg,
+                                    seed = 0,
+                                    prompt = prompt,
+                                    negativePrompt = negativePrompt,
+                                    generationTime = "",
+                                    width = currentWidth,
+                                    height = currentHeight,
+                                    runOnCpu = model?.runOnCpu ?: false,
+                                    denoiseStrength = denoiseStrength,
+                                    useOpenCL = useOpenCL,
+                                    scheduler = scheduler
+                                )
 
+                                Log.d(
+                                    "ModelRunScreen",
+                                    "start generation batch: $batchCounts times"
+                                )
+
+                                // If seed is set, only generate once regardless of batch count
+                                val actualBatchCount =
+                                    if (seed.isNotBlank()) 1 else batchCounts
+
+                                batchGenerationJob = coroutineScope.launch {
+                                    for (i in 0 until actualBatchCount) {
+                                        currentBatchIndex = i + 1
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "preparing batch $i"
+                                        )
+
+                                        // Update generationParamsTmp to reflect current parameters
+                                        // This allows parameters to be changed during batch execution
+                                        generationParamsTmp = GenerationParameters(
+                                            steps = steps.roundToInt(),
+                                            cfg = cfg,
+                                            seed = 0,
+                                            prompt = prompt,
+                                            negativePrompt = negativePrompt,
+                                            generationTime = "",
+                                            width = currentWidth,
+                                            height = currentHeight,
+                                            runOnCpu = model?.runOnCpu ?: false,
+                                            denoiseStrength = denoiseStrength,
+                                            useOpenCL = useOpenCL,
+                                            scheduler = scheduler
+                                        )
+
+                                        val batchIntent = Intent(
+                                            context,
+                                            BackgroundGenerationService::class.java
+                                        ).apply {
+                                            putExtra("prompt", prompt)
+                                            putExtra(
+                                                "negative_prompt",
+                                                negativePrompt
+                                            )
+                                            putExtra("steps", steps.roundToInt())
+                                            putExtra("cfg", cfg)
+                                            seed.toLongOrNull()
+                                                ?.let { putExtra("seed", it) }
+                                            putExtra("width", currentWidth)
+                                            putExtra("height", currentHeight)
+                                            putExtra(
+                                                "denoise_strength",
+                                                denoiseStrength
+                                            )
+                                            putExtra("use_opencl", useOpenCL)
+                                            putExtra("scheduler", scheduler)
+                                            putExtra("batch_index", i)
+                                            if (selectedImageUri != null && base64EncodeDone) {
+                                                putExtra("has_image", true)
+                                                if (isInpaintMode && maskBitmap != null) {
+                                                    putExtra("has_mask", true)
+                                                }
+                                            }
+                                        }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "start service - batch $i"
+                                        )
+
+                                        context.startForegroundService(batchIntent)
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "start service sent - batch $i"
+                                        )
+
+                                        BackgroundGenerationService.generationState
+                                            .first { state ->
+                                                state is GenerationState.Complete ||
+                                                        state is GenerationState.Error
+                                            }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "batch $i completed, waiting for service to stop"
+                                        )
+
+                                        // Wait for service to actually stop
+                                        val waitStartTime =
+                                            System.currentTimeMillis()
+                                        val timeoutMs = 5000L
+                                        while (BackgroundGenerationService.isServiceRunning.value) {
+                                            if (System.currentTimeMillis() - waitStartTime > timeoutMs) {
+                                                Log.w(
+                                                    "ModelRunScreen",
+                                                    "Timeout waiting for service to stop"
+                                                )
+                                                break
+                                            }
+                                            delay(100)
+                                        }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms"
+                                        )
+
+                                        BackgroundGenerationService.resetState()
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "service state reset, ready for next batch"
+                                        )
+                                    }
+                                    currentBatchIndex = 0
+                                    isRunning = false
+                                    Log.d(
+                                        "ModelRunScreen",
+                                        "all batches completed, isRunning set to false"
+                                    )
+                                }
+                            },
+                            enabled = serviceState !is GenerationState.Progress && !isRunning && !isUpscaling,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            if (serviceState is GenerationState.Progress || isUpscaling) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                Text(stringResource(R.string.generate_image))
+
+                            }
                         }
                     }
                 }
             }
-
-
             AnimatedVisibility(
                 visible = errorMessage != null,
                 enter = expandVertically() + fadeIn(),
@@ -1714,6 +1724,21 @@ fun ModelRunScreen(
                                 alpha = 0.7f
                             )
                         )
+                        intermediateBitmap?.let { bitmap ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(currentWidth.toFloat() / currentHeight.toFloat())
+                            ) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Generation Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -3032,8 +3057,14 @@ fun ModelRunScreen(
                                                 put("cfg", updatedParams.cfg)
                                                 put("seed", updatedParams.seed)
                                                 put("prompt", updatedParams.prompt)
-                                                put("negativePrompt", updatedParams.negativePrompt)
-                                                put("generationTime", updatedParams.generationTime)
+                                                put(
+                                                    "negativePrompt",
+                                                    updatedParams.negativePrompt
+                                                )
+                                                put(
+                                                    "generationTime",
+                                                    updatedParams.generationTime
+                                                )
                                                 put("width", updatedParams.width)
                                                 put("height", updatedParams.height)
                                                 put("runOnCpu", updatedParams.runOnCpu)
@@ -3263,11 +3294,14 @@ fun ModelRunScreen(
                                 scope.launch {
                                     if (selectedHistoryItem!!.params == null) {
                                         val params =
-                                            historyManager.loadHistoryItemParams(selectedHistoryItem!!)
+                                            historyManager.loadHistoryItemParams(
+                                                selectedHistoryItem!!
+                                            )
                                         if (params != null) {
                                             val newItem =
                                                 selectedHistoryItem!!.copy(params = params)
-                                            val index = historyItems.indexOf(selectedHistoryItem!!)
+                                            val index =
+                                                historyItems.indexOf(selectedHistoryItem!!)
                                             if (index != -1) {
                                                 historyItems[index] = newItem
                                             }
@@ -3377,7 +3411,11 @@ fun ModelRunScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                stringResource(R.string.basic_size, params.width, params.height),
+                                stringResource(
+                                    R.string.basic_size,
+                                    params.width,
+                                    params.height
+                                ),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             params.seed?.let {
@@ -3557,7 +3595,10 @@ fun ModelRunScreen(
                         }
                     }
                 ) {
-                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             },
             dismissButton = {
@@ -3616,7 +3657,10 @@ fun ModelRunScreen(
                         }
                     }
                 ) {
-                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             },
             dismissButton = {

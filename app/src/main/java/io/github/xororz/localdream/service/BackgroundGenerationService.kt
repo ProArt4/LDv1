@@ -1,6 +1,7 @@
 package io.github.xororz.localdream.service
 
 import android.app.*
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.app.NotificationChannel
@@ -59,7 +60,9 @@ class BackgroundGenerationService : Service() {
 
     sealed class GenerationState {
         object Idle : GenerationState()
-        data class Progress(val progress: Float) : GenerationState()
+        data class Progress(val progress: Float, val intermediateImage: Bitmap? = null) :
+            GenerationState()
+
         data class Complete(val bitmap: Bitmap, val seed: Long?) : GenerationState()
         data class Error(val message: String) : GenerationState()
     }
@@ -187,6 +190,11 @@ class BackgroundGenerationService : Service() {
         try {
             updateState(GenerationState.Progress(0f))
 
+            val preferences =
+                applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            val showProcess = preferences.getBoolean("show_diffusion_process", false)
+            val showStride = preferences.getInt("show_diffusion_stride", 1)
+
             val jsonObject = JSONObject().apply {
                 put("prompt", prompt)
                 put("negative_prompt", negativePrompt)
@@ -198,6 +206,8 @@ class BackgroundGenerationService : Service() {
                 put("denoise_strength", denoiseStrength)
                 put("use_opencl", useOpenCL)
                 put("scheduler", scheduler)
+                put("show_diffusion_process", showProcess)
+                put("show_diffusion_stride", showStride)
                 seed?.let { put("seed", it) }
                 image?.let { put("image", it) }
                 mask?.let { put("mask", it) }
@@ -252,7 +262,35 @@ class BackgroundGenerationService : Service() {
                                     val step = message.optInt("step")
                                     val totalSteps = message.optInt("total_steps")
                                     val progress = step.toFloat() / totalSteps
-                                    updateState(GenerationState.Progress(progress))
+
+                                    val b64Img = message.optString("image")
+                                    var bitmap: Bitmap? = null
+                                    if (b64Img.isNotEmpty()) {
+                                        try {
+                                            val imageBytes = Base64.getDecoder().decode(b64Img)
+                                            val pixels = IntArray(width * height)
+                                            for (i in 0 until width * height) {
+                                                val index = i * 3
+                                                if (index + 2 < imageBytes.size) {
+                                                    val r = imageBytes[index].toInt() and 0xFF
+                                                    val g = imageBytes[index + 1].toInt() and 0xFF
+                                                    val b = imageBytes[index + 2].toInt() and 0xFF
+                                                    pixels[i] =
+                                                        (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                                                }
+                                            }
+                                            bitmap = createBitmap(width, height)
+                                            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+                                        } catch (e: Exception) {
+                                            Log.e(
+                                                "BgGenService",
+                                                "Failed to decode intermediate image",
+                                                e
+                                            )
+                                        }
+                                    }
+
+                                    updateState(GenerationState.Progress(progress, bitmap))
                                     updateNotification(progress)
                                 }
 

@@ -101,6 +101,8 @@ bool request_has_mask;
 bool use_opencl;
 
 bool cvt_model = false;
+bool show_diffusion_process = false;
+int show_diffusion_stride = 1;
 
 struct PatchedModelBuffer {
   std::shared_ptr<uint8_t> buffer;
@@ -860,7 +862,7 @@ xt::xarray<float> blend_vae_encoder_tiles(
     const std::vector<std::pair<xt::xarray<float>, xt::xarray<float>>>
         &tiles_mean_std,
     const std::vector<std::pair<int, int>> &positions, int latent_h,
-    int latent_w, int tile_size, int overlap) {
+    int latent_w, int tile_size, int overlap_x, int overlap_y) {
   if (tiles_mean_std.empty()) {
     throw std::runtime_error(
         "Tile list cannot be empty for VAE encoder blending.");
@@ -871,22 +873,44 @@ xt::xarray<float> blend_vae_encoder_tiles(
   xt::xarray<float> accumulated_std = xt::zeros<float>(accumulated_shape);
   xt::xarray<float> weight_map = xt::zeros<float>({latent_h, latent_w});
 
-  int fade_size = overlap / 2;
-  xt::xarray<float> tile_weight = xt::ones<float>({tile_size, tile_size});
-
-  if (fade_size > 0) {
-    for (int i = 0; i < fade_size; ++i) {
-      float alpha = (float)(i + 1) / fade_size;
-      xt::view(tile_weight, i, xt::all()) *= alpha;
-      xt::view(tile_weight, tile_size - 1 - i, xt::all()) *= alpha;
-      xt::view(tile_weight, xt::all(), i) *= alpha;
-      xt::view(tile_weight, xt::all(), tile_size - 1 - i) *= alpha;
-    }
-  }
+  int fade_size_x = overlap_x / 2;
+  int fade_size_y = overlap_y / 2;
 
   for (size_t idx = 0; idx < tiles_mean_std.size(); ++idx) {
     int x = positions[idx].first;
     int y = positions[idx].second;
+
+    xt::xarray<float> tile_weight = xt::ones<float>({tile_size, tile_size});
+
+    if (fade_size_y > 0) {
+      if (y > 0) {
+        for (int i = 0; i < fade_size_y; ++i) {
+          float alpha = (float)(i + 1) / fade_size_y;
+          xt::view(tile_weight, i, xt::all()) *= alpha;
+        }
+      }
+      if (y + tile_size < latent_h) {
+        for (int i = 0; i < fade_size_y; ++i) {
+          float alpha = (float)(i + 1) / fade_size_y;
+          xt::view(tile_weight, tile_size - 1 - i, xt::all()) *= alpha;
+        }
+      }
+    }
+
+    if (fade_size_x > 0) {
+      if (x > 0) {
+        for (int i = 0; i < fade_size_x; ++i) {
+          float alpha = (float)(i + 1) / fade_size_x;
+          xt::view(tile_weight, xt::all(), i) *= alpha;
+        }
+      }
+      if (x + tile_size < latent_w) {
+        for (int i = 0; i < fade_size_x; ++i) {
+          float alpha = (float)(i + 1) / fade_size_x;
+          xt::view(tile_weight, xt::all(), tile_size - 1 - i) *= alpha;
+        }
+      }
+    }
 
     const auto &mean_tile =
         tiles_mean_std[idx].first;  // (1, 4, tile_size, tile_size)
@@ -928,7 +952,7 @@ xt::xarray<float> blend_vae_encoder_tiles(
 xt::xarray<float> blend_vae_output_tiles(
     const std::vector<xt::xarray<float>> &tiles,
     const std::vector<std::pair<int, int>> &positions, int output_h,
-    int output_w, int tile_size, int overlap) {
+    int output_w, int tile_size, int overlap_x, int overlap_y) {
   if (tiles.empty()) {
     throw std::runtime_error(
         "Tile list cannot be empty for VAE output blending.");
@@ -938,22 +962,44 @@ xt::xarray<float> blend_vae_output_tiles(
   xt::xarray<float> accumulated = xt::zeros<float>(accumulated_shape);
   xt::xarray<float> weight_map = xt::zeros<float>({output_h, output_w});
 
-  int fade_size = overlap / 2;
-  xt::xarray<float> tile_weight = xt::ones<float>({tile_size, tile_size});
-
-  if (fade_size > 0) {
-    for (int i = 0; i < fade_size; ++i) {
-      float alpha = (float)(i + 1) / fade_size;
-      xt::view(tile_weight, i, xt::all()) *= alpha;
-      xt::view(tile_weight, tile_size - 1 - i, xt::all()) *= alpha;
-      xt::view(tile_weight, xt::all(), i) *= alpha;
-      xt::view(tile_weight, xt::all(), tile_size - 1 - i) *= alpha;
-    }
-  }
+  int fade_size_x = overlap_x / 2;
+  int fade_size_y = overlap_y / 2;
 
   for (size_t idx = 0; idx < tiles.size(); ++idx) {
     int x = positions[idx].first;
     int y = positions[idx].second;
+
+    xt::xarray<float> tile_weight = xt::ones<float>({tile_size, tile_size});
+
+    if (fade_size_y > 0) {
+      if (y > 0) {
+        for (int i = 0; i < fade_size_y; ++i) {
+          float alpha = (float)(i + 1) / fade_size_y;
+          xt::view(tile_weight, i, xt::all()) *= alpha;
+        }
+      }
+      if (y + tile_size < output_h) {
+        for (int i = 0; i < fade_size_y; ++i) {
+          float alpha = (float)(i + 1) / fade_size_y;
+          xt::view(tile_weight, tile_size - 1 - i, xt::all()) *= alpha;
+        }
+      }
+    }
+
+    if (fade_size_x > 0) {
+      if (x > 0) {
+        for (int i = 0; i < fade_size_x; ++i) {
+          float alpha = (float)(i + 1) / fade_size_x;
+          xt::view(tile_weight, xt::all(), i) *= alpha;
+        }
+      }
+      if (x + tile_size < output_w) {
+        for (int i = 0; i < fade_size_x; ++i) {
+          float alpha = (float)(i + 1) / fade_size_x;
+          xt::view(tile_weight, xt::all(), tile_size - 1 - i) *= alpha;
+        }
+      }
+    }
 
     for (int c = 0; c < 3; ++c) {
       auto acc_slice = xt::view(accumulated, 0, c, xt::range(y, y + tile_size),
@@ -1124,9 +1170,10 @@ xt::xarray<uint8_t> upscaleImageWithModel(
 
 // --- VAE Tiling Helper ---
 // Calculate tile positions and overlaps for VAE encoder/decoder
-// Returns: {pixel_positions, latent_positions, pixel_overlap, latent_overlap}
+// Returns: {pixel_positions, latent_positions, pixel_overlap_x,
+// pixel_overlap_y, latent_overlap_x, latent_overlap_y}
 std::tuple<std::vector<std::pair<int, int>>, std::vector<std::pair<int, int>>,
-           int, int>
+           int, int, int, int>
 calculate_vae_tile_positions(int pixel_width, int pixel_height) {
   const int vae_tile_size = 512;        // Fixed VAE tile size in pixel space
   const int vae_latent_tile_size = 64;  // Fixed VAE tile size in latent space
@@ -1166,22 +1213,25 @@ calculate_vae_tile_positions(int pixel_width, int pixel_height) {
   }
 
   // Calculate actual overlaps based on tile positions
-  int pixel_overlap = 0;
-  int latent_overlap = 0;
+  int pixel_overlap_x = 0;
+  int latent_overlap_x = 0;
+  int pixel_overlap_y = 0;
+  int latent_overlap_y = 0;
 
-  // Check both x and y directions for overlap calculation
   if (pixel_x_coords.size() > 1) {
-    pixel_overlap = vae_tile_size - (pixel_x_coords[1] - pixel_x_coords[0]);
-    latent_overlap =
+    pixel_overlap_x = vae_tile_size - (pixel_x_coords[1] - pixel_x_coords[0]);
+    latent_overlap_x =
         vae_latent_tile_size - (latent_x_coords[1] - latent_x_coords[0]);
-  } else if (pixel_y_coords.size() > 1) {
-    // If only y direction has multiple tiles, calculate overlap from y coords
-    pixel_overlap = vae_tile_size - (pixel_y_coords[1] - pixel_y_coords[0]);
-    latent_overlap =
+  }
+
+  if (pixel_y_coords.size() > 1) {
+    pixel_overlap_y = vae_tile_size - (pixel_y_coords[1] - pixel_y_coords[0]);
+    latent_overlap_y =
         vae_latent_tile_size - (latent_y_coords[1] - latent_y_coords[0]);
   }
 
-  return {pixel_positions, latent_positions, pixel_overlap, latent_overlap};
+  return {pixel_positions, latent_positions, pixel_overlap_x,
+          pixel_overlap_y, latent_overlap_x, latent_overlap_y};
 }
 
 // Upscale image using MNN model
@@ -1338,7 +1388,9 @@ xt::xarray<uint8_t> upscaleImageWithMNN(const std::vector<uint8_t> &input_image,
 
 // --- Image Generation ---
 GenerationResult generateImage(
-    std::function<void(int step, int total_steps)> progress_callback) {
+    std::function<void(int step, int total_steps,
+                       const std::string &image_data)>
+        progress_callback) {
   using namespace qnn::tools::sample_app;
   if (prompt.empty()) throw std::invalid_argument("Global prompt empty");
   if (use_safety_checker && !safetyCheckerInterpreter)
@@ -1487,7 +1539,7 @@ GenerationResult generateImage(
                      .count()
               << "ms\n";
     current_step++;
-    progress_callback(current_step, total_run_steps);
+    progress_callback(current_step, total_run_steps, "");
 
     // --- Scheduler & Latents ---
     std::unique_ptr<Scheduler> scheduler;
@@ -1618,13 +1670,15 @@ GenerationResult generateImage(
         const int vae_enc_latent_tile_size = 64;
 
         // Use generic tile position calculator
-        auto [img_positions, latent_positions, img_overlap, latent_overlap] =
+        auto [img_positions, latent_positions, img_overlap_x, img_overlap_y,
+              latent_overlap_x, latent_overlap_y] =
             calculate_vae_tile_positions(output_width, output_height);
 
         int num_tiles = img_positions.size();
         std::cout << "VAE encoder will use " << num_tiles
-                  << " tiles with overlap " << img_overlap
-                  << "px (latent: " << latent_overlap << ")" << std::endl;
+                  << " tiles with overlap " << img_overlap_x << "x"
+                  << img_overlap_y << "px (latent: " << latent_overlap_x << "x"
+                  << latent_overlap_y << ")" << std::endl;
 
         int original_output_width = output_width;
         int original_output_height = output_height;
@@ -1678,7 +1732,8 @@ GenerationResult generateImage(
 
         xt::xarray<float> img_lat = blend_vae_encoder_tiles(
             encoded_tiles_mean_std, latent_positions, sample_height,
-            sample_width, vae_enc_latent_tile_size, latent_overlap);
+            sample_width, vae_enc_latent_tile_size, latent_overlap_x,
+            latent_overlap_y);
 
         img_lat_scaled = xt::eval(0.18215 * img_lat);
 
@@ -1708,7 +1763,7 @@ GenerationResult generateImage(
       }
 
       current_step++;
-      progress_callback(current_step, total_run_steps);
+      progress_callback(current_step, total_run_steps, "");
     }  // --- UNET Denoising Loop ---
     int single_latent_size = 1 * 4 * sample_width * sample_height;
 
@@ -1765,6 +1820,112 @@ GenerationResult generateImage(
     }
 
     for (int i = start_step; i < timesteps.size(); ++i) {
+      if (show_diffusion_process && !use_mnn &&
+          (i - start_step) % show_diffusion_stride == 0) {
+        try {
+          // Decode current latents for preview
+          xt::xarray<float> preview_latents =
+              xt::eval((1.0 / 0.18215) * latents);
+
+          xt::xarray<float> pixels;
+          bool preview_success = false;
+
+          if (output_width > 512 || output_height > 512) {
+            // Use tiling for QNN large resolution preview
+            auto [output_positions, latent_positions, overlap_x, overlap_y,
+                  latent_overlap_x, latent_overlap_y] =
+                calculate_vae_tile_positions(output_width, output_height);
+
+            const int vae_tile_size = 512;
+            const int vae_latent_tile_size = 64;
+
+            int original_output_width = output_width;
+            int original_output_height = output_height;
+            int original_sample_width = sample_width;
+            int original_sample_height = sample_height;
+
+            output_width = vae_tile_size;
+            output_height = vae_tile_size;
+            sample_width = vae_latent_tile_size;
+            sample_height = vae_latent_tile_size;
+
+            std::vector<xt::xarray<float>> decoded_tiles;
+            decoded_tiles.reserve(latent_positions.size());
+
+            bool tile_success = true;
+            for (size_t tile_idx = 0; tile_idx < latent_positions.size();
+                 ++tile_idx) {
+              auto lat_pos = latent_positions[tile_idx];
+              // Extract latent tile
+              xt::xarray<float> latent_tile =
+                  xt::view(preview_latents, 0, xt::all(),
+                           xt::range(lat_pos.second,
+                                     lat_pos.second + vae_latent_tile_size),
+                           xt::range(lat_pos.first,
+                                     lat_pos.first + vae_latent_tile_size));
+
+              std::vector<float> tile_latent_vec(latent_tile.begin(),
+                                                 latent_tile.end());
+              xt::xarray<float> tile_output =
+                  xt::zeros<float>({1, 3, vae_tile_size, vae_tile_size});
+
+              if (StatusCode::SUCCESS !=
+                  vaeDecoderApp->executeVaeDecoderGraphs(tile_latent_vec.data(),
+                                                         tile_output.data())) {
+                tile_success = false;
+                break;
+              }
+
+              decoded_tiles.push_back(std::move(tile_output));
+            }
+
+            output_width = original_output_width;
+            output_height = original_output_height;
+            sample_width = original_sample_width;
+            sample_height = original_sample_height;
+
+            if (tile_success) {
+              pixels = blend_vae_output_tiles(
+                  decoded_tiles, output_positions, output_height, output_width,
+                  vae_tile_size, overlap_x, overlap_y);
+              preview_success = true;
+            }
+          } else {
+            // Single inference for QNN <= 512
+            std::vector<float> vae_dec_in_vec(preview_latents.begin(),
+                                              preview_latents.end());
+            std::vector<float> vae_dec_out_pixels(1 * 3 * output_width *
+                                                  output_height);
+            if (StatusCode::SUCCESS ==
+                vaeDecoderApp->executeVaeDecoderGraphs(
+                    vae_dec_in_vec.data(), vae_dec_out_pixels.data())) {
+              std::vector<int> pixel_shape = {1, 3, output_height,
+                                              output_width};
+              pixels = xt::adapt(vae_dec_out_pixels, pixel_shape);
+              preview_success = true;
+            }
+          }
+
+          if (preview_success) {
+            auto img = xt::view(pixels, 0);
+            auto transp = xt::transpose(img, {1, 2, 0});
+            auto norm = xt::clip(((transp + 1.0) / 2.0) * 255.0, 0.0, 255.0);
+            xt::xarray<uint8_t> u8_img = xt::cast<uint8_t>(norm);
+            std::vector<uint8_t> out_data(u8_img.begin(), u8_img.end());
+            std::string image_str_result(out_data.begin(), out_data.end());
+            std::string enc_img = base64_encode(image_str_result);
+            progress_callback(current_step, total_run_steps, enc_img);
+          } else {
+            progress_callback(current_step, total_run_steps, "");
+          }
+        } catch (const std::exception &e) {
+          QNN_WARN("Preview generation failed: %s", e.what());
+          progress_callback(current_step, total_run_steps, "");
+        }
+      } else {
+        progress_callback(current_step, total_run_steps, "");
+      }
+
       auto step_start_time = std::chrono::high_resolution_clock::now();
 
       // Scale model input (required for Euler schedulers)
@@ -1862,7 +2023,6 @@ GenerationResult generateImage(
       }
 
       current_step++;
-      progress_callback(current_step, total_run_steps);
     }
 
     if (use_mnn) {
@@ -1971,13 +2131,15 @@ GenerationResult generateImage(
       const int vae_latent_tile_size = 64;
 
       // Use generic tile position calculator
-      auto [output_positions, latent_positions, overlap, latent_overlap] =
+      auto [output_positions, latent_positions, overlap_x, overlap_y,
+            latent_overlap_x, latent_overlap_y] =
           calculate_vae_tile_positions(output_width, output_height);
 
       int num_tiles = output_positions.size();
       std::cout << "VAE decoder will use " << num_tiles
-                << " tiles with overlap " << overlap
-                << "px (latent: " << latent_overlap << ")" << std::endl;
+                << " tiles with overlap " << overlap_x << "x" << overlap_y
+                << "px (latent: " << latent_overlap_x << "x" << latent_overlap_y
+                << ")" << std::endl;
 
       int original_output_width = output_width;
       int original_output_height = output_height;
@@ -2001,19 +2163,18 @@ GenerationResult generateImage(
 
         std::vector<float> tile_latent_vec(latent_tile.begin(),
                                            latent_tile.end());
-        std::vector<float> tile_output_vec(1 * 3 * vae_tile_size *
-                                           vae_tile_size);
+        xt::xarray<float> tile_output =
+            xt::zeros<float>({1, 3, vae_tile_size, vae_tile_size});
 
         if (!vaeDecoderApp)
           throw std::runtime_error("Global vaeDecoderApp not init!");
 
         if (StatusCode::SUCCESS !=
             vaeDecoderApp->executeVaeDecoderGraphs(tile_latent_vec.data(),
-                                                   tile_output_vec.data()))
+                                                   tile_output.data()))
           throw std::runtime_error("QNN VAE dec exec failed for tile");
 
-        std::vector<int> tile_shape = {1, 3, vae_tile_size, vae_tile_size};
-        decoded_tiles.push_back(xt::adapt(tile_output_vec, tile_shape));
+        decoded_tiles.push_back(std::move(tile_output));
 
         std::cout << "Processed VAE tile " << i + 1 << "/"
                   << latent_positions.size() << std::endl;
@@ -2024,9 +2185,9 @@ GenerationResult generateImage(
       sample_width = original_sample_width;
       sample_height = original_sample_height;
 
-      pixels =
-          blend_vae_output_tiles(decoded_tiles, output_positions, output_height,
-                                 output_width, vae_tile_size, overlap);
+      pixels = blend_vae_output_tiles(decoded_tiles, output_positions,
+                                      output_height, output_width,
+                                      vae_tile_size, overlap_x, overlap_y);
 
       std::cout << "VAE tiling completed: " << decoded_tiles.size()
                 << " tiles processed and blended" << std::endl;
@@ -2080,7 +2241,7 @@ GenerationResult generateImage(
     }
 
     current_step++;
-    progress_callback(current_step, total_run_steps);
+    progress_callback(current_step, total_run_steps, "");
     auto end_time = std::chrono::high_resolution_clock::now();
     auto total_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                           end_time - start_time)
@@ -2238,6 +2399,8 @@ int main(int argc, char **argv) {
       cfg = json.value("cfg", 7.5f);
       scheduler_type = json.value("scheduler", "dpm");
       use_opencl = json.value("use_opencl", false);
+      show_diffusion_process = json.value("show_diffusion_process", false);
+      show_diffusion_stride = json.value("show_diffusion_stride", 1);
       seed = json.value(
           "seed",
           (unsigned)hashSeed(
@@ -2323,7 +2486,9 @@ int main(int argc, char **argv) {
                 << " Seed:" << seed << " Size:" << output_width << "x"
                 << output_height << " Img2Img:" << request_img2img
                 << " Mask:" << request_has_mask
-                << " Denoise:" << denoise_strength << std::endl;
+                << " Denoise:" << denoise_strength
+                << " ShowProcess:" << show_diffusion_process
+                << " Stride:" << show_diffusion_stride << std::endl;
       res.set_header("Content-Type", "text/event-stream");
       res.set_header("Cache-Control", "no-cache");
       res.set_header("Connection", "keep-alive");
@@ -2331,12 +2496,17 @@ int main(int argc, char **argv) {
       res.set_chunked_content_provider(
           "text/event-stream", [&](intptr_t, httplib::DataSink &sink) -> bool {
             try {
-              auto result = generateImage([&sink](int s, int t) {
-                nlohmann::json p = {
-                    {"type", "progress"}, {"step", s}, {"total_steps", t}};
-                std::string ev = "event: progress\ndata: " + p.dump() + "\n\n";
-                sink.write(ev.c_str(), ev.size());
-              });
+              auto result =
+                  generateImage([&sink](int s, int t, const std::string &img) {
+                    nlohmann::json p = {
+                        {"type", "progress"}, {"step", s}, {"total_steps", t}};
+                    if (!img.empty()) {
+                      p["image"] = img;
+                    }
+                    std::string ev =
+                        "event: progress\ndata: " + p.dump() + "\n\n";
+                    sink.write(ev.c_str(), ev.size());
+                  });
               auto enc_start = std::chrono::high_resolution_clock::now();
               std::string image_str_result(result.image_data.begin(),
                                            result.image_data.end());

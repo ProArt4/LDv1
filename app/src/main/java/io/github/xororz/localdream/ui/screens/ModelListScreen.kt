@@ -949,6 +949,29 @@ fun ModelListScreen(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                                 )
                             ) {
+                                val preferences = LocalContext.current.getSharedPreferences(
+                                    "app_prefs",
+                                    Context.MODE_PRIVATE
+                                )
+                                var useImg2img by remember {
+                                    mutableStateOf(
+                                        preferences.getBoolean("use_img2img", true).also {
+                                            if (!preferences.contains("use_img2img")) {
+                                                preferences.edit {
+                                                    putBoolean(
+                                                        "use_img2img",
+                                                        true
+                                                    )
+                                                }
+                                            }
+                                        })
+                                }
+                                var showProcess by remember {
+                                    mutableStateOf(
+                                        preferences.getBoolean("show_diffusion_process", false)
+                                    )
+                                }
+
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -970,23 +993,6 @@ fun ModelListScreen(
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                         )
                                     }
-                                    val preferences = LocalContext.current.getSharedPreferences(
-                                        "app_prefs",
-                                        Context.MODE_PRIVATE
-                                    )
-                                    var useImg2img by remember {
-                                        mutableStateOf(
-                                            preferences.getBoolean("use_img2img", true).also {
-                                                if (!preferences.contains("use_img2img")) {
-                                                    preferences.edit {
-                                                        putBoolean(
-                                                            "use_img2img",
-                                                            true
-                                                        )
-                                                    }
-                                                }
-                                            })
-                                    }
                                     Switch(
                                         checked = useImg2img,
                                         onCheckedChange = {
@@ -996,6 +1002,90 @@ fun ModelListScreen(
                                             }
                                         }
                                     )
+                                }
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.show_process),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            stringResource(R.string.show_process_hint),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                    Switch(
+                                        checked = showProcess,
+                                        onCheckedChange = {
+                                            showProcess = it
+                                            preferences.edit {
+                                                putBoolean("show_diffusion_process", it)
+                                            }
+                                        }
+                                    )
+                                }
+                                AnimatedVisibility(visible = showProcess) {
+                                    Column {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(horizontal = 16.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.2f
+                                            )
+                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp)
+                                        ) {
+                                            var stride by remember {
+                                                mutableStateOf(
+                                                    preferences.getInt("show_diffusion_stride", 1)
+                                                        .toFloat()
+                                                )
+                                            }
+                                            Text(
+                                                text = stringResource(R.string.preview_stride),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                stringResource(
+                                                    R.string.preview_stride_hint,
+                                                    stride.toInt()
+                                                ),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                                    alpha = 0.7f
+                                                )
+                                            )
+                                            Slider(
+                                                value = stride,
+                                                onValueChange = {
+                                                    stride = it
+                                                    preferences.edit {
+                                                        putInt("show_diffusion_stride", it.toInt())
+                                                    }
+                                                },
+                                                valueRange = 1f..10f,
+                                                steps = 8,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
