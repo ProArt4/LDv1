@@ -61,7 +61,7 @@ bool use_safety_checker = false;
 bool use_mnn_clip = false;
 bool use_clip_v2 = false;
 bool upscaler_mode = false;
-float nsfw_threshold = 999.0f;
+float nsfw_threshold = 1.0f;
 std::string clipPath, unetPath, vaeDecoderPath, vaeEncoderPath,
     safetyCheckerPath, tokenizerPath, patchPath, modelDir, upscalerPath;
 std::vector<float> pos_emb;
@@ -2224,7 +2224,7 @@ GenerationResult generateImage(
       if (safety_check(out_data, output_width, output_height, score,
                        safetyCheckerInterpreter, safetyCheckerSession)) {
         std::cout << "NSFW Score: " << score << std::endl;
-        if (score > nsfw_threshold) {
+        if (false && score > nsfw_threshold) {
           QNN_WARN("NSFW detected (%.2f>%.2f).", score, nsfw_threshold);
           std::fill(out_data.begin(), out_data.end(), 255);
         }
