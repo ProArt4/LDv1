@@ -61,7 +61,7 @@ bool use_safety_checker = false;
 bool use_mnn_clip = false;
 bool use_clip_v2 = false;
 bool upscaler_mode = false;
-float nsfw_threshold = 0.5f;
+float nsfw_threshold = 999.0f;
 std::string clipPath, unetPath, vaeDecoderPath, vaeEncoderPath,
     safetyCheckerPath, tokenizerPath, patchPath, modelDir, upscalerPath;
 std::vector<float> pos_emb;
